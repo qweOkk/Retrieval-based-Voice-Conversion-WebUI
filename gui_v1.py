@@ -138,6 +138,7 @@ if __name__ == "__main__":
         def __init__(self) -> None:
             self.gui_config = GUIConfig()
             self.config = Config()
+            # self.config.device = torch.device("cpu")
             self.function = "vc"
             self.delay_time = 0
             self.hostapis = None
@@ -973,11 +974,11 @@ if __name__ == "__main__":
                 )
                 + 1e-8
             )
-            if sys.platform == "darwin":
-                _, sola_offset = torch.max(cor_nom[0, 0] / cor_den[0, 0])
-                sola_offset = sola_offset.item()
-            else:
-                sola_offset = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
+            # if sys.platform == "darwin":
+            #     _, sola_offset = torch.max(cor_nom[0, 0] / cor_den[0, 0])
+            #     sola_offset = sola_offset.item()
+            # else:
+            sola_offset = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
             printt("sola_offset = %d", int(sola_offset))
             infer_wav = infer_wav[sola_offset:]
             if "privateuseone" in str(self.config.device) or not self.gui_config.use_pv:
