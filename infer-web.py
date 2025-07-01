@@ -31,7 +31,7 @@ import traceback
 import threading
 import shutil
 import logging
-
+import gc
 
 logging.getLogger("numba").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -627,7 +627,7 @@ def train_index(exp_dir1, version19):
     listdir_res = list(os.listdir(feature_dir))
     if len(listdir_res) == 0:
         return "请先进行特征提取！"
-    infos = []
+    
     npys = []
     for name in sorted(listdir_res):
         phone = np.load("%s/%s" % (feature_dir, name))
@@ -637,8 +637,7 @@ def train_index(exp_dir1, version19):
     np.random.shuffle(big_npy_idx)
     big_npy = big_npy[big_npy_idx]
     if big_npy.shape[0] > 2e5:
-        infos.append("Trying doing kmeans %s shape to 10k centers." % big_npy.shape[0])
-        yield "\n".join(infos)
+        print("Trying doing kmeans %s shape to 10k centers." % big_npy.shape[0])
         try:
             big_npy = (
                 MiniBatchKMeans(
@@ -654,17 +653,14 @@ def train_index(exp_dir1, version19):
         except:
             info = traceback.format_exc()
             logger.info(info)
-            infos.append(info)
-            yield "\n".join(infos)
+            print(info)
 
     np.save("%s/total_fea.npy" % exp_dir, big_npy)
     n_ivf = min(int(16 * np.sqrt(big_npy.shape[0])), big_npy.shape[0] // 39)
-    infos.append("%s,%s" % (big_npy.shape, n_ivf))
-    yield "\n".join(infos)
+    print("%s,%s" % (big_npy.shape, n_ivf))
     index = faiss.index_factory(256 if version19 == "v1" else 768, "IVF%s,Flat" % n_ivf)
     # index = faiss.index_factory(256if version19=="v1"else 768, "IVF%s,PQ128x4fs,RFlat"%n_ivf)
-    infos.append("training")
-    yield "\n".join(infos)
+    print("training")
     index_ivf = faiss.extract_index_ivf(index)  #
     index_ivf.nprobe = 1
     index.train(big_npy)
@@ -673,17 +669,36 @@ def train_index(exp_dir1, version19):
         "%s/trained_IVF%s_Flat_nprobe_%s_%s_%s.index"
         % (exp_dir, n_ivf, index_ivf.nprobe, exp_dir1, version19),
     )
-    infos.append("adding")
-    yield "\n".join(infos)
-    batch_size_add = 8192
-    for i in range(0, big_npy.shape[0], batch_size_add):
-        index.add(big_npy[i : i + batch_size_add])
+    print("成功构建索引 trained_IVF%s_Flat_nprobe_%s_%s_%s.index" % (n_ivf, index_ivf.nprobe, exp_dir1, version19))
+    print("adding")
+    
+    # 分小批次添加数据
+    batch_size = 8192  # 使用很小的批次
+    total_batches = (big_npy.shape[0] + batch_size - 1) // batch_size
+    
+    print(f"开始添加数据，批次大小={batch_size}, 总批次={total_batches}")
+    
+    for i in range(0, big_npy.shape[0], batch_size):
+        batch_end = min(i + batch_size, big_npy.shape[0])
+        batch_data = big_npy[i:batch_end].copy()
+        
+        if not batch_data.flags['C_CONTIGUOUS']:
+            batch_data = np.ascontiguousarray(batch_data)
+            
+        index.add(batch_data)
+        
+        batch_num = i // batch_size + 1
+        if batch_num % 20 == 0 or batch_end == big_npy.shape[0]:
+            progress = batch_end / big_npy.shape[0] * 100
+            print(f"进度: {progress:.1f}% ({batch_num}/{total_batches})")
+            gc.collect()  # 清理内存
+    
     faiss.write_index(
         index,
         "%s/added_IVF%s_Flat_nprobe_%s_%s_%s.index"
         % (exp_dir, n_ivf, index_ivf.nprobe, exp_dir1, version19),
     )
-    infos.append(
+    print(
         "成功构建索引 added_IVF%s_Flat_nprobe_%s_%s_%s.index"
         % (n_ivf, index_ivf.nprobe, exp_dir1, version19)
     )
@@ -702,13 +717,13 @@ def train_index(exp_dir1, version19):
                 version19,
             ),
         )
-        infos.append("链接索引到外部-%s" % (outside_index_root))
+        print("链接索引到外部-%s" % (outside_index_root))
     except:
-        infos.append("链接索引到外部-%s失败" % (outside_index_root))
+        print("链接索引到外部-%s失败" % (outside_index_root))
 
     # faiss.write_index(index, '%s/added_IVF%s_Flat_FastScan_%s.index'%(exp_dir,n_ivf,version19))
-    # infos.append("成功构建索引，added_IVF%s_Flat_FastScan_%s.index"%(n_ivf,version19))
-    yield "\n".join(infos)
+    # print("成功构建索引，added_IVF%s_Flat_FastScan_%s.index"%(n_ivf,version19))
+    print("索引训练完成!")
 
 
 # but5.click(train1key, [exp_dir1, sr2, if_f0_3, trainset_dir4, spk_id5, gpus6, np7, f0method8, save_epoch10, total_epoch11, batch_size12, if_save_latest13, pretrained_G14, pretrained_D15, gpus16, if_cache_gpu17], info3)
